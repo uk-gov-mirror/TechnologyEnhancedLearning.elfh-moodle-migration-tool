@@ -5,6 +5,7 @@ using Moodle_Migration.Models;
 using Moodle_Migration_WebUI.Hubs;
 using Moodle_Migration_WebUI.Interfaces;
 using Moodle_Migration_WebUI.Models;
+using Newtonsoft.Json.Linq;
 using System.Security.Cryptography.X509Certificates;
 using static System.Formats.Asn1.AsnWriter;
 
@@ -109,62 +110,105 @@ namespace Moodle_Migration.Services
             switch (parameter)
             {
                 case "id":
-                    int elfhComponentId = 0;
-                    Int32.TryParse(value, out elfhComponentId);
-
-                    if (elfhComponentId == 0)
                     {
-                        return "Invalid elfh component ID!";
-                    }
-                    ElfhComponent elfhComponent = await componentRepository.GetByIdAsync(elfhComponentId);
-                    if (elfhComponent == null)
-                    {
-                        return "Invalid elfh component ID!";
-                    }
-                    var categoryResult = await CreateMoodleCategory(elfhComponent);
-                    elfhComponent.MoodleCategoryId = categoryResult.resultValue;
-                    result ="Category '"+ elfhComponent.ComponentName+"' - "+ categoryResult.result;
+                        int elfhComponentId = 0;
+                        Int32.TryParse(value, out elfhComponentId);
 
-                    if (elfhComponent.MoodleCategoryId == 0)
-                    {
-                        return "Category creation failed!";                        
+                        if (elfhComponentId == 0)
+                        {
+                            return "Invalid elfh component ID!";
+                        }
+                        ElfhComponent elfhComponent = await componentRepository.GetByIdAsync(elfhComponentId);
+                        if (elfhComponent == null)
+                        {
+                            return "Invalid elfh component ID!";
+                        }
+                        //check if category exists in moodle
+                        var cats = await GetCategories(new[] { $"idnumber=elfh-{value}" });
+                        var elfhChildComponents = await componentRepository.GetChildComponentsAsync(elfhComponent.ComponentId);
+                        var catArray = string.IsNullOrWhiteSpace(cats) ? null : JArray.Parse(cats);
+                        var category = catArray?.FirstOrDefault();
+                        if (category == null)
+                        {
+                            result += $"Creating category '{elfhComponent.ComponentName}'";
+                            var categoryResult = await CreateMoodleCategory(elfhComponent);
+                            elfhComponent.MoodleCategoryId = categoryResult.resultValue;
+                            result += $"Category '{elfhComponent.ComponentName}' - {categoryResult.result}";
+                            result += await CreateCategoryChildren(elfhComponent, elfhChildComponents);
+                            return result;
+                        }
+                        int catId = category["id"].Value<int>();
+                        elfhComponent.MoodleCategoryId = catId;
+                        var coursesJson = await GetCourses(new[] { $"category={catId}" });
+                        var courseArray = JObject.Parse(coursesJson)["courses"] as JArray ?? new JArray();
+                        var elfhCourses = elfhChildComponents
+                                            .Where(c => c.ComponentTypeId == (int)ComponentTypeEnum.Course || c.ComponentTypeId == (int)ComponentTypeEnum.LearningPath)
+                                            .ToList();
+                        int moodleCourseCount = courseArray.Count;
+                        int elfhCourseCount = elfhCourses.Count;
+                        if (moodleCourseCount == elfhCourseCount)
+                        {
+                            result += $"Category '{elfhComponent.ComponentName}' already synced.";
+                            return result;
+                        }
+                        result += $"Syncing missing courses for '{elfhComponent.ComponentName}'";
+                        //  Extract existing Moodle course IDs (from idnumber)
+                        var existingCourseIds = new HashSet<int>(
+                            courseArray
+                                .Where(c => c["idnumber"] != null)
+                                .Select(c => c["idnumber"].ToString().Replace("elfh-", ""))
+                                .Select(int.Parse)
+                        );
+                        var remainingComponents = elfhChildComponents
+                                .Where(x =>
+                                    !((x.ComponentTypeId == (int)ComponentTypeEnum.Course || x.ComponentTypeId == (int)ComponentTypeEnum.LearningPath) &&
+                                       existingCourseIds.Contains(x.ComponentId))
+                                )
+                                .ToList();
+                        remainingComponents = remainingComponents
+                                .Where(x =>
+                                    !(x.ComponentTypeId == (int)ComponentTypeEnum.Session &&
+                                      existingCourseIds.Contains(x.ParentComponentId))
+                                )
+                                .ToList();
+                        // Continue processing ONLY remaining items
+                        result += await CreateCategoryChildren(elfhComponent, remainingComponents);
+                        break;
+
                     }
-
-                    //result += "\n" + $"The child elfh components will be created and added  to the '{elfhComponent.ComponentName}' category";
-                    List<ElfhComponent> elfhChildComponents = await componentRepository.GetChildComponentsAsync(elfhComponent.ComponentId);
-                    result += await CreateCategoryChildren(elfhComponent, elfhChildComponents);
-
-                    break;
+                    
 
                 case "idweb":
-                    elfhComponentId = 0;
-                    Int32.TryParse(value, out elfhComponentId);
-
-                    if (elfhComponentId == 0)
                     {
-                        return "Invalid elfh component ID!";                        
+                        int elfhComponentId = 0;
+                        Int32.TryParse(value, out elfhComponentId);
+
+                        if (elfhComponentId == 0)
+                        {
+                            return "Invalid elfh component ID!";
+                        }
+                        ElfhComponent elfhComponent = await componentRepository.GetByIdAsync(elfhComponentId);
+                        if (elfhComponent == null)
+                        {
+                            return "Invalid elfh component ID!";
+                        }
+                        var categoryResult = await CreateMoodleCategory(elfhComponent);
+                        elfhComponent.MoodleCategoryId = categoryResult.resultValue;
+                        result = categoryResult.result;
+
+                        if (elfhComponent.MoodleCategoryId == 0)
+                        {
+                            result += "\n" + "Category creation failed!";
+                            return result;
+                        }
+
+                        result += "\n" + $"The child elfh components will be created and added  to the '{elfhComponent.ComponentName}' category";
+
+                        List<ElfhComponent> elfhChildComponentsWeb = await componentRepository.GetChildComponentsAsync(elfhComponent.ComponentId);
+                        result += await CreateCategoryChildren(elfhComponent, elfhChildComponentsWeb);
+
+                        break;
                     }
-                    elfhComponent = await componentRepository.GetByIdAsync(elfhComponentId);
-                    if (elfhComponent == null)
-                    {
-                        return "Invalid elfh component ID!";
-                    }
-                    categoryResult = await CreateMoodleCategory(elfhComponent);
-                    elfhComponent.MoodleCategoryId = categoryResult.resultValue;
-                    result = categoryResult.result;
-
-                    if (elfhComponent.MoodleCategoryId == 0)
-                    {
-                        result += "\n" + "Category creation failed!";
-                        return result;
-                    }
-
-                    result += "\n" + $"The child elfh components will be created and added  to the '{elfhComponent.ComponentName}' category";
-
-                    List<ElfhComponent> elfhChildComponentsWeb = await componentRepository.GetChildComponentsAsync(elfhComponent.ComponentId);
-                    result += await CreateCategoryChildren(elfhComponent, elfhChildComponentsWeb);                    
-
-                    break;
                 default:
                     result = "Parameter must 'id'";
                     break;
@@ -413,6 +457,24 @@ namespace Moodle_Migration.Services
                 Console.WriteLine("Scorm resource '" + elfhComponent.ComponentName + "'- " + result.result);
                 return result;
             }
+        }
+        private async Task<string> GetCourses(string[] parameters)
+        {
+            string additionalParameters = string.Empty;
+
+            if (parameters.Length == 1) // field and value are provided
+            {
+                if (!parameters[0].Contains("="))
+                {
+                    return ($"Parameters must be in the format 'field=value' ({parameters[0]})");
+                }
+                var key = parameters[0].Split('=')[0];
+                var value = parameters[0].Split('=')[1];
+                additionalParameters = $"&field={key}&value={value}";
+            }
+
+            string url = $"&wsfunction=core_course_get_courses_by_field{additionalParameters}";
+            return await httpService.Get(url);
         }
     }
 }
