@@ -57,7 +57,7 @@ jobs:
           $opts = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
           $session = New-PSSession -ComputerName $env:VM_HOST -UseSSL -SessionOption $opts -Credential $creds
           Invoke-Command -Session $session -ScriptBlock {
-            Remove-Item "C:\inetpub\wwwroot\MigrationTool" -Recurse -Force -ErrorAction SilentlyContinue
+            Get-ChildItem $path -Recurse -File | Where-Object { $_.Name -notlike "appsettings*.json" } | Remove-Item -Force -ErrorAction SilentlyContinue
             New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\MigrationTool" -Force
           }
           Copy-Item -Path "./publish/*" -Destination "C:\inetpub\wwwroot\MigrationTool" -Recurse -ToSession $session
