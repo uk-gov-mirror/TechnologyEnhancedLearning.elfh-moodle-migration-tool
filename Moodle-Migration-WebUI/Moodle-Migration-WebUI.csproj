@@ -15,5 +15,12 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
     <PackageReference Include="SimpleImpersonation" Version="4.2.0" />
   </ItemGroup>
-
+	<ItemGroup>
+  <Content Update="appsettings.json">
+    <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+  </Content>
+  <Content Update="appsettings.*.json">
+    <CopyToPublishDirectory>Never</CopyToPublishDirectory>
+  </Content>
+</ItemGroup>
 </Project>
