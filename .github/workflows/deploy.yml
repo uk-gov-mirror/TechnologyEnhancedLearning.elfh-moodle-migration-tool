@@ -56,13 +56,17 @@ jobs:
           $securePassword = ConvertTo-SecureString $env:VM_PASSWORD -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:VM_USER, $securePassword)
           $opts = New-PSSessionOption -SkipCACheck -SkipCNCheck -SkipRevocationCheck
-          $session = New-PSSession -ComputerName $env:VM_HOST -UseSSL -SessionOption $opts -Credential $creds
-          Invoke-Command -Session $session -ScriptBlock {
-            Remove-Item "C:\inetpub\wwwroot\MigrationTool" -Recurse -Force -ErrorAction SilentlyContinue
-            New-Item -ItemType Directory -Path "C:\inetpub\wwwroot\MigrationTool" -Force
+          $session = New-PSSession -ComputerName $env:VM_HOST -UseSSL -SessionOption $opts -Credential $creds   
+          Invoke-Command -Session $session -ScriptBlock {param($remotePath)
+          if (Test-Path $remotePath) {
+          Get-ChildItem $remotePath -Recurse | Where-Object { $_.Name -notlike "appsettings*.json"} | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
           }
+          else {
+          New-Item -ItemType Directory -Path $remotePath -Force
+          }
+
+          } -ArgumentList $path
           Copy-Item -Path "./publish/*" -Destination $path -Recurse -Force -ToSession $session
-         
           Remove-PSSession $session
 
       # 6. Restart IIS
