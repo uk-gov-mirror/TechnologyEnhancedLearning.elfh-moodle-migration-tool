@@ -51,6 +51,7 @@ jobs:
       - name: Copy files to VM
         shell: pwsh
         run: |
+          $path = "C:\inetpub\wwwroot\MigrationTool"
           Set-Item -Path WSMan:\localhost\Client\TrustedHosts -Value $env:VM_HOST -Force
           $securePassword = ConvertTo-SecureString $env:VM_PASSWORD -AsPlainText -Force
           $creds = New-Object System.Management.Automation.PSCredential ($env:VM_USER, $securePassword)
